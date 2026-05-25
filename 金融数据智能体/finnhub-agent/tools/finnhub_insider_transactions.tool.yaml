@@ -1,0 +1,21 @@
+type: tool
+name: finnhub_insider_transactions
+description: >-
+  Get insider (executive/board) stock transactions. Shows the 20 most recent
+  transactions.
+input_schema:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: Stock ticker symbol (e.g. 'AAPL', 'MSFT').
+    from_date:
+      type: string
+      description: Start date YYYY-MM-DD.
+    to_date:
+      type: string
+      description: End date YYYY-MM-DD.
+  required:
+    - symbol
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

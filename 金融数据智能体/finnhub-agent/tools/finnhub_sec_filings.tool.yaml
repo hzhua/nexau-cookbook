@@ -1,0 +1,23 @@
+type: tool
+name: finnhub_sec_filings
+description: >-
+  Get SEC filings for a company. Returns the first 20 filings with filing date,
+  form type, and access URL.
+input_schema:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: Stock ticker symbol (e.g. 'AAPL', 'MSFT').
+    form:
+      type: string
+      description: "Filter by form type, e.g. '10-K', '10-Q', '8-K'."
+    from_date:
+      type: string
+      description: Start date YYYY-MM-DD.
+    to_date:
+      type: string
+      description: End date YYYY-MM-DD.
+  required: []
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

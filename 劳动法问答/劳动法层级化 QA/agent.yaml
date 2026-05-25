@@ -1,0 +1,38 @@
+type: agent
+name: labor_law_qa
+description: 劳动法智能问答机器人，基于中国劳动法律法规为用户提供专业的法律咨询服务
+max_iterations: 300
+system_prompt: ./systemprompt.md
+system_prompt_type: jinja
+
+llm_config:
+  api_type: openai_chat_completion
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  max_tokens: 8192
+  temperature: 0.2
+  stream: True
+
+tools:
+  - name: read_file
+    yaml_path: tools/read_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
+  - name: search_file_content
+    yaml_path: tools/search_file_content.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:search_file_content
+  - name: run_shell_command
+    yaml_path: tools/run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+skills:
+  - ./skills/labor-lawyer-cn
+
+max_iterations: 50
+max_context_tokens: 128000
+tool_call_mode: structured
+
+middlewares:
+  - import: nexau.archs.main_sub.execution.middleware.context_compaction:ContextCompactionMiddleware
+    params:
+      threshold: 0.6

@@ -1,0 +1,72 @@
+type: agent
+name: map_kb_agent
+description: >-
+  MAP 平台向量库问答 Agent。基于精选公开法规/政策/制度向量库做 hybrid /
+  semantic / fulltext 检索,以同义词扩召回 + 跨 KB 并行的方式回答用户问题,
+  给出引用清晰的中文回答。
+
+system_prompt: ./systemprompt_vb.md
+system_prompt_type: jinja
+
+llm_config:
+  api_type: openai_chat_completion
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  max_tokens: 8192
+  temperature: 0.2
+  stream: True
+
+max_iterations: 50
+max_context_tokens: 128000
+tool_call_mode: structured
+
+tools:
+  # --- 标配三件套 ---
+  - name: read_file
+    yaml_path: tools/read_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
+  - name: search_file_content
+    yaml_path: tools/search_file_content.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:search_file_content
+  - name: run_shell_command
+    yaml_path: tools/run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+  # --- MAP 向量 KB 工具（搜索导向）---
+  - name: map_vec_get_chunks_by_file
+    yaml_path: tools/map_vec_get_chunks_by_file.tool.yaml
+    binding: custom_tools.map_api:map_vec_get_chunks_by_file
+    extra_kwargs:
+      app_key: ${env.MAP_APP_KEY}
+      app_secret: ${env.MAP_APP_SECRET}
+      user_id: ${env.MAP_USER_ID}
+
+  - name: map_vec_batch_search
+    yaml_path: tools/map_vec_batch_search.tool.yaml
+    binding: custom_tools.map_api:map_vec_batch_search
+    extra_kwargs:
+      app_key: ${env.MAP_APP_KEY}
+      app_secret: ${env.MAP_APP_SECRET}
+      user_id: ${env.MAP_USER_ID}
+
+  - name: map_vec_semantic_search
+    yaml_path: tools/map_vec_semantic_search.tool.yaml
+    binding: custom_tools.map_api:map_vec_semantic_search
+    extra_kwargs:
+      app_key: ${env.MAP_APP_KEY}
+      app_secret: ${env.MAP_APP_SECRET}
+      user_id: ${env.MAP_USER_ID}
+
+  - name: map_vec_fulltext_search
+    yaml_path: tools/map_vec_fulltext_search.tool.yaml
+    binding: custom_tools.map_api:map_vec_fulltext_search
+    extra_kwargs:
+      app_key: ${env.MAP_APP_KEY}
+      app_secret: ${env.MAP_APP_SECRET}
+      user_id: ${env.MAP_USER_ID}
+
+middlewares:
+  - import: nexau.archs.main_sub.execution.middleware.context_compaction:ContextCompactionMiddleware
+    params:
+      threshold: 0.6

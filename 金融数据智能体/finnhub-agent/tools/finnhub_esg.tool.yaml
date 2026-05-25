@@ -1,0 +1,14 @@
+type: tool
+name: finnhub_esg
+description: >-
+  Get ESG (Environmental, Social, Governance) scores for a company.
+input_schema:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: Stock ticker symbol (e.g. 'AAPL', 'MSFT').
+  required:
+    - symbol
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

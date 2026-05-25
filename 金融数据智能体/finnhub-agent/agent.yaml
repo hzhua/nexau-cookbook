@@ -1,0 +1,146 @@
+type: agent
+name: finnhub_agent
+description: >-
+  Financial data analyst agent powered by Finnhub API. Provides real-time stock
+  quotes, company profiles, financial metrics, earnings data, analyst
+  recommendations, insider activity, market news, SEC filings, and more.
+max_iterations: 300
+
+system_prompt: ./systemprompt.md
+system_prompt_type: jinja
+
+llm_config:
+  api_type: openai_chat_completion
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  max_tokens: 8192
+  temperature: 0.2
+  stream: True
+
+max_iterations: 50
+max_context_tokens: 128000
+tool_call_mode: structured
+
+tools:
+  # --- Builtin tools (standard 3) ---
+  - name: read_file
+    yaml_path: tools/read_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
+  - name: search_file_content
+    yaml_path: tools/search_file_content.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:search_file_content
+  - name: run_shell_command
+    yaml_path: tools/run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+  # --- Finnhub: Stock Core ---
+  - name: finnhub_quote
+    yaml_path: tools/finnhub_quote.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_quote
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_symbol_lookup
+    yaml_path: tools/finnhub_symbol_lookup.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_symbol_lookup
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_company_profile
+    yaml_path: tools/finnhub_company_profile.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_company_profile
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_peers
+    yaml_path: tools/finnhub_peers.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_peers
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: Fundamentals ---
+  - name: finnhub_basic_financials
+    yaml_path: tools/finnhub_basic_financials.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_basic_financials
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_earnings_surprises
+    yaml_path: tools/finnhub_earnings_surprises.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_earnings_surprises
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_financials_reported
+    yaml_path: tools/finnhub_financials_reported.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_financials_reported
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_esg
+    yaml_path: tools/finnhub_esg.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_esg
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: Analyst ---
+  - name: finnhub_recommendation
+    yaml_path: tools/finnhub_recommendation.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_recommendation
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: Insider ---
+  - name: finnhub_insider_transactions
+    yaml_path: tools/finnhub_insider_transactions.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_insider_transactions
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_insider_sentiment
+    yaml_path: tools/finnhub_insider_sentiment.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_insider_sentiment
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: News ---
+  - name: finnhub_company_news
+    yaml_path: tools/finnhub_company_news.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_company_news
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_market_news
+    yaml_path: tools/finnhub_market_news.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_market_news
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: Filings & Gov ---
+  - name: finnhub_sec_filings
+    yaml_path: tools/finnhub_sec_filings.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_sec_filings
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_lobbying
+    yaml_path: tools/finnhub_lobbying.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_lobbying
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: Calendar ---
+  - name: finnhub_earnings_calendar
+    yaml_path: tools/finnhub_earnings_calendar.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_earnings_calendar
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+  - name: finnhub_ipo_calendar
+    yaml_path: tools/finnhub_ipo_calendar.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_ipo_calendar
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+  # --- Finnhub: Market ---
+  - name: finnhub_market_status
+    yaml_path: tools/finnhub_market_status.tool.yaml
+    binding: custom_tools.finnhub_api:finnhub_market_status
+    extra_kwargs:
+      api_token: ${env.X_FINNHUB_SECRET}
+
+middlewares:
+  - import: nexau.archs.main_sub.execution.middleware.context_compaction:ContextCompactionMiddleware
+    params:
+      threshold: 0.6

@@ -1,0 +1,16 @@
+type: tool
+name: finnhub_market_news
+description: >-
+  Get general market news. Returns the latest 15 articles with headline, source,
+  summary, and URL.
+input_schema:
+  type: object
+  properties:
+    category:
+      type: string
+      description: >-
+        News category: 'general', 'forex', 'crypto', or 'merger'. Default
+        'general'.
+  required: []
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

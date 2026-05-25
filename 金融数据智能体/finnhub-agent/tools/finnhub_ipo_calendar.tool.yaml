@@ -1,0 +1,19 @@
+type: tool
+name: finnhub_ipo_calendar
+description: >-
+  Get IPO calendar for a date range showing upcoming and recent initial public
+  offerings.
+input_schema:
+  type: object
+  properties:
+    from_date:
+      type: string
+      description: Start date YYYY-MM-DD.
+    to_date:
+      type: string
+      description: End date YYYY-MM-DD.
+  required:
+    - from_date
+    - to_date
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

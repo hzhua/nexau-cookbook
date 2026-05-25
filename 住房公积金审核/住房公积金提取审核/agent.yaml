@@ -1,0 +1,45 @@
+type: agent
+name: house_fund_review_agent
+max_context_tokens: 200000
+system_prompt: ./systemprompt.md
+system_prompt_type: jinja
+tool_call_mode: structured
+max_iterations: 300
+
+llm_config:
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  max_tokens: 32000
+  stream: True
+  temperature: 1
+
+  api_type: openai_chat_completion
+
+tools:
+  # File operations
+  - name: read_file
+    yaml_path: ./tools/read_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
+  - name: write_file
+    yaml_path: ./tools/write_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:write_file
+  - name: replace
+    yaml_path: ./tools/replace.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:replace
+  # Search and navigation
+  - name: search_file_content
+    yaml_path: ./tools/search_file_content.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:search_file_content
+  - name: list_directory
+    yaml_path: ./tools/list_directory.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:list_directory
+  # Shell
+  - name: run_shell_command
+    yaml_path: ./tools/run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+
+skills:
+  - ./skills/house-fund-review
+  - ./skills/pdf_to_md

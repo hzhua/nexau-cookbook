@@ -1,0 +1,38 @@
+type: tool
+name: execute_sql
+description: >-
+  执行 SQL 查询并返回结果。
+
+  使用说明:
+    - 仅支持 SELECT 查询，禁止执行 DROP、DELETE、UPDATE、INSERT 等危险操作
+    - 数据库连接串由 Resource Bundle 的 DB_CONN_STR 注入，工具根据连接串判断数据源类型
+    - 支持 postgresql://、postgres:// 和 sqlite:/// 连接串
+    - 查询结果默认最多返回 10 行，可通过 max_rows 参数调整
+    - 查询默认超时时间为 30 秒
+    - 返回结果包含列名和数据行
+
+  最佳实践:
+    - 始终使用 LIMIT 限制返回行数
+    - 对于大表查询，先使用 COUNT(*) 估计数据量
+    - 使用 WHERE 条件过滤数据，避免全表扫描
+    - PostgreSQL 连接使用 PostgreSQL 方言；SQLite 连接使用 SQLite 方言
+    - 使用 credit_code 在 enterprise_* 表之间做 JOIN
+
+input_schema:
+  type: object
+  properties:
+    sql:
+      type: string
+      description: 要执行的 SQL 查询语句（仅支持 SELECT）
+    timeout:
+      type: integer
+      default: 30
+      description: 查询超时时间（秒），默认 30 秒
+    max_rows:
+      type: integer
+      default: 10
+      description: 最大返回行数，默认 10 行
+  required:
+    - sql
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

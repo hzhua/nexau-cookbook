@@ -1,0 +1,17 @@
+type: tool
+name: finnhub_earnings_surprises
+description: >-
+  Get earnings surprises — actual vs estimated EPS for recent quarters.
+input_schema:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: Stock ticker symbol (e.g. 'AAPL', 'MSFT').
+    limit:
+      type: integer
+      description: Number of periods to return. Default 4.
+  required:
+    - symbol
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

@@ -1,0 +1,38 @@
+type: agent
+name: enterprise_data_agent
+description: 企业数据问答 Agent — 基于企业数据库的自然语言查询。
+
+system_prompt: ./systemprompt.md
+system_prompt_type: file
+max_iterations: 300
+tool_call_mode: structured
+
+llm_config:
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  api_type: openai_chat_completion
+  temperature: 0.2
+  stream: true
+
+tools:
+  - name: execute_sql
+    yaml_path: ./tools/execute_sql.tool.yaml
+    binding: custom_tools.execute_sql:execute_sql
+    extra_kwargs:
+      db_conn_str: ${env.DB_CONN_STR}
+  - name: read_file
+    yaml_path: ./tools/read_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
+  - name: run_shell_command
+    yaml_path: ./tools/run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+skills:
+  - ./skills/enterprise_basic
+  - ./skills/enterprise_contact
+  - ./skills/enterprise_financing
+  - ./skills/enterprise_product
+  - ./skills/industry
+  - ./skills/industry_enterprise
+  - ./skills/users

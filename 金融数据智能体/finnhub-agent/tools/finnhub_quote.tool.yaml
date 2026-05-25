@@ -1,0 +1,15 @@
+type: tool
+name: finnhub_quote
+description: >-
+  Get real-time stock quote including current price, change, percent change,
+  high, low, open, previous close, and timestamp.
+input_schema:
+  type: object
+  properties:
+    symbol:
+      type: string
+      description: Stock ticker symbol (e.g. 'AAPL', 'MSFT').
+  required:
+    - symbol
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#
