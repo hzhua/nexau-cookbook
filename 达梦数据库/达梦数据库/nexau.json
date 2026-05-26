@@ -1,0 +1,9 @@
+{
+  "agents": {
+    "dameng_sql_agent": "agent.yaml"
+  },
+  "setup": [
+    "/usr/local/bin/uv pip install --python /opt/venv/bin/python --no-index --find-links /agent/dmpython-airgap dmpython==2.5.32"
+  ],
+  "excluded": [".nexau/", ".env", "__pycache__/", "归档.zip"]
+}

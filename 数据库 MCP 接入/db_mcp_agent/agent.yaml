@@ -1,0 +1,30 @@
+variables:
+  max_tokens: 8000
+
+type: agent
+name: database_mcp_agent
+description: 企业经营数据库 MCP 问数 Agent。通过外部 HTTP MCP server 只读访问业务数据库。
+
+system_prompt: ./systemprompt.md
+system_prompt_type: jinja
+tool_call_mode: structured
+max_iterations: 80
+max_context_tokens: 128000
+
+llm_config:
+  stream: false
+  max_tokens: ${variables.max_tokens}
+  api_type: openai_chat_completion
+
+mcp_servers:
+  - name: enterprise_ops_db
+    type: http
+    # 改成 MCP server 在 NAC 沙箱可达的地址
+    # (详见 ../tutorial-database-mcp.md "部署到 NAC" 段)
+    url: http://host.docker.internal:8000/mcp
+    headers:
+      Accept: application/json, text/event-stream
+      # 公网部署加: Authorization: Bearer ${env.MCP_TOKEN}
+      # 本机调试需要 Host=localhost(MCP server 的 DNS rebinding 防护)
+      Host: localhost:8000
+    timeout: 30

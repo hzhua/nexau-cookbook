@@ -1,6 +1,6 @@
 # 开始之前：样例项目的通用约定
 
-> 这份文档是 6 个样例**共用**的基础知识。读完这里再去看任何一篇 TUTORIAL，都会轻松很多。
+> 这份文档是 10 个样例**共用**的基础知识。读完这里再去看任何一篇 TUTORIAL，都会轻松很多。
 
 ## 目录
 
@@ -24,7 +24,7 @@
 
 ## 样例项目的通用目录结构
 
-6 个样例结构几乎一致，先眼熟这个模板：
+10 个样例结构几乎一致，先眼熟这个模板：
 
 ```
 <sample-root>/
@@ -34,6 +34,7 @@
 │   ├── systemprompt.md       ← 大脑：角色定位 + 工作流 + 输出规范
 │   ├── tools/                ← 手脚：内置工具 / 自定义工具声明（.tool.yaml）
 │   ├── custom_tools/         ← 自定义工具的 Python 实现（按需）
+│   ├── mcp_server/           ← 内嵌 MCP server 实现（按需；生产更推荐外部 HTTP MCP 服务）
 │   └── skills/               ← 领域知识：层级化 SKILL.md 及原文
 │       └── <skill-name>/
 │           ├── SKILL.md      ← 技能索引
@@ -96,7 +97,10 @@ zip -r enterprise_data_agent.zip . -x "*.DS_Store" "*__pycache__*" "*.env"
 | 变量 | 来源 | 哪些样例需要 |
 |------|------|-------------|
 | `OCR_API_KEY` | OCR 服务商 | 住房公积金审核、公文写作（涉及 PDF） |
-| `FINNHUB_API_KEY` | [finnhub.io](https://finnhub.io) | 金融数据智能体 |
+| `X_FINNHUB_SECRET` | [finnhub.io](https://finnhub.io) | 金融数据智能体 |
+| `MAP_APP_KEY` / `MAP_APP_SECRET` / `MAP_USER_ID` | MAP 平台 | MAP 知识库问答 |
+| `DAMENG_DB_CONN_STR` | 自己的达梦数据库 | 达梦数据库（**Runtime Var**，不是 Sandbox Var） |
+| `LLM_MODEL` / `LLM_BASE_URL` / `LLM_API_KEY` | OpenAI 兼容 LLM 网关 | 达梦数据库（自定义 LLM 不走平台默认） |
 | 其他 API Key | 视场景而定 | — |
 
 配置沙盒环境变量有**两种方式**：
@@ -126,7 +130,7 @@ curl -kN -sS -X POST "https://nac.xiaobei.top/agent-api/chat" \
     "variables": {
       "template": {"project_name": "my-app"},
       "runtime_vars": {"api_key": "sk-xxx"},
-      "sandbox_env": {"OCR_API_KEY": "sk-ocr-xxx", "FINNHUB_API_KEY": "xxx"}
+      "sandbox_env": {"OCR_API_KEY": "sk-ocr-xxx", "X_FINNHUB_SECRET": "xxx"}
     }
   }'
 ```
@@ -165,6 +169,16 @@ curl -kN -sS -X POST "https://nac.xiaobei.top/agent-api/chat" \
 
 ### Q: Agent 回答时没调用 Skill？
 检查 `SKILL.md` 的 frontmatter `description`——它是 Agent 决定「要不要用这个技能」的依据。写清楚触发条件（什么时候该用这个 Skill）。
+
+### Q: MCP server 连接失败？
+先确认 MCP server 是独立服务,本地用 `curl` 试一下 `http://<mcp-url>` 是否返回 200/405。例如数据库 MCP 样例:
+
+```bash
+curl -sI -m 5 http://127.0.0.1:8000/mcp
+# 期望:HTTP/1.1 405 (HEAD 不允许,但 server 活着) 或 200
+```
+
+如果本地能过、平台连接失败，优先检查 `agent.yaml` 里的 `mcp_servers.url` 是否能从 NAC 沙箱访问，以及 `Host`、`Accept`、鉴权 headers 是否配置正确。使用 `host.docker.internal` 访问宿主机服务时，通常需要显式设置 `Host: localhost:8000`，否则 MCP server 可能返回 `421 Invalid Host header`。
 
 ---
 

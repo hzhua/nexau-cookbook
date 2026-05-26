@@ -1,0 +1,22 @@
+type: agent
+name: dameng_sql_agent
+description: Dameng SQL read-only query agent.
+system_prompt: >-
+  You are a careful SQL analyst. Use run_dameng_sql only for read-only SELECT
+  queries. Before querying unknown tables, inspect metadata with SELECT queries.
+  Keep result sets small and explain assumptions.
+tool_call_mode: openai
+llm_config:
+  model: ${env.LLM_MODEL}
+  base_url: ${env.LLM_BASE_URL}
+  api_key: ${env.LLM_API_KEY}
+  max_tokens: 4096
+  stream: false
+  temperature: 0.2
+  api_type: openai_chat_completion
+tools:
+  - name: run_dameng_sql
+    yaml_path: ./tools/run_dameng_sql.tool.yaml
+    binding: custom_tools.dameng_sql:run_dameng_sql
+    extra_kwargs:
+      db_conn_str: ${env.DAMENG_DB_CONN_STR}
