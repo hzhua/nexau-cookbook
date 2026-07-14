@@ -176,9 +176,15 @@ class MapClient:
             _TOKEN_CACHE[key] = fresh
             return fresh["access_token"]
 
-    def invalidate_token(self) -> None:
+    def invalidate_token(self, rejected_token: str | None = None) -> None:
+        """Remove a rejected token without discarding a concurrent refresh."""
         with _TOKEN_LOCK:
-            _TOKEN_CACHE.pop(self._cache_key(), None)
+            key = self._cache_key()
+            cached = _TOKEN_CACHE.get(key)
+            if cached is None:
+                return
+            if rejected_token is None or cached.get("access_token") == rejected_token:
+                _TOKEN_CACHE.pop(key, None)
 
     # ------------------------------------------------------------------ api
 
@@ -217,16 +223,25 @@ class MapClient:
         return payload
 
     def _looks_like_auth_failure(self, status: int, payload: dict[str, Any]) -> bool:
-        if status == 401:
+        if status in (401, 403):
             return True
-        if not self._is_ok(payload):
-            state = str(payload.get("state", ""))
-            if state.startswith(("401", "403")):
-                return True
-        return False
+        if self._is_ok(payload):
+            return False
+
+        # MAP reports an expired/invalid access token as HTTP 500 with
+        # state=28201 instead of an HTTP authentication status.
+        codes = (
+            str(payload.get("state") or ""),
+            str(payload.get("resultCode") or ""),
+        )
+        if any(code == "28201" or code.startswith(("401", "403")) for code in codes):
+            return True
+
+        message = "".join(str(payload.get("message") or "").lower().split())
+        return "token无效" in message or "invalidtoken" in message
 
     def call_json(self, path: str, body: dict[str, Any]) -> Any:
-        """POST and return the JSON `data` field. Retries once on 401."""
+        """POST and return `data`; refresh and retry once on auth failure."""
         return self._call(self._post_json, path, body=body, return_full=False)
 
     def call_full(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -251,30 +266,37 @@ class MapClient:
         params: dict[str, Any] | None = None,
         return_full: bool,
     ) -> Any:
-        # Up to 3 attempts: auth retry on attempt 1 (token invalidation),
-        # transient `state=20001 服务未知异常` retry on attempt 2 (with a
-        # 600ms backoff — empirically the first call after cold-start on
-        # demo update endpoints tends to fail this way and the second
-        # succeeds).
-        for attempt in (1, 2, 3):
+        # Retry once after an auth failure (token invalidation), independently
+        # of up to two transient retries. Keeping separate retry budgets ensures
+        # that a late auth failure still gets one request with the fresh token.
+        auth_refreshed = False
+        transient_retries = 0
+        while True:
+            headers = self._auth_headers()
             if body is not None:
-                status, raw, _ = verb(path, body, extra_headers=self._auth_headers())
+                status, raw, _ = verb(path, body, extra_headers=headers)
             else:
-                status, raw, _ = verb(path, params, extra_headers=self._auth_headers())
+                status, raw, _ = verb(path, params, extra_headers=headers)
             try:
                 preview = json.loads(raw.decode("utf-8"))
                 preview_dict = preview if isinstance(preview, dict) else {}
             except Exception:
                 preview_dict = {}
-            if attempt == 1 and self._looks_like_auth_failure(status, preview_dict):
-                self.invalidate_token()
+            auth_failure = self._looks_like_auth_failure(status, preview_dict)
+            if auth_failure and not auth_refreshed:
+                self.invalidate_token(headers["accessToken"])
+                auth_refreshed = True
                 continue
-            if attempt < 3 and self._looks_like_transient(status, preview_dict):
+            if (
+                not auth_failure
+                and transient_retries < 2
+                and self._looks_like_transient(status, preview_dict)
+            ):
+                transient_retries += 1
                 time.sleep(0.6)
                 continue
             payload = self._parse_payload(path, status, raw)
             return payload if return_full else payload.get("data")
-        raise MapApiError(f"{path} unexpected retry exhaustion")
 
     @staticmethod
     def _looks_like_transient(status: int, payload: dict[str, Any]) -> bool:
@@ -290,4 +312,3 @@ class MapClient:
             if state == "20001":
                 return True
         return False
-

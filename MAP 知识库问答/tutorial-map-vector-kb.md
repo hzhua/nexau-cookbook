@@ -266,7 +266,7 @@ MAP 的 `/retriever_search_docs` 端点存在一个隐藏问题：若 body 简�
 
 ### 鉴权 / token 缓存 / transient 重试
 
-`MapClient` 已处理 token 缓存、过期自动重取（401 / state=20002）、transient 错误自动重试一次（state=20001）。你仅需配置 `MAP_APP_KEY/SECRET/USER_ID` 三个 env，其余无需关心。
+`MapClient` 使用进程级 token 缓存，本地计时到期后自动重取。MAP 有时会用 `HTTP 500 + state=28201`（或“token无效”）表示鉴权失败；客户端会清除被拒绝的旧 token、现场获取最新 token，并重试原请求一次。按 token 值做条件失效，可避免并发请求误删另一个请求刚刷新的 token。`state=20001` 的 transient 错误则最多退避重试两次。你仅需配置 `MAP_APP_KEY/SECRET/USER_ID` 三个 env，其余无需关心。
 
 ---
 
