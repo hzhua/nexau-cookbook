@@ -592,6 +592,12 @@ def map_vec_batch_search(
             return q, kb, data, did_fallback, None
         except MapApiError as exc:
             return q, kb, [], False, str(exc)
+        except Exception as exc:
+            # ⚠️ socket.timeout / URLError 不是 MapApiError。不接住它们，
+            # 异常会从线程逃逸、在 pool.map 迭代处炸掉**整个 batch**——
+            # 于是 8 个查询里 7 个成功也一起丢失，调用方只看到一个 traceback。
+            # 单条失败必须降级成单条错误，不能连坐。
+            return q, kb, [], False, f"{type(exc).__name__}: {exc}"
 
     # Dedup by raw chunk id (which we strip from output via _slim_search_hit).
     by_id: dict[str, dict[str, Any]] = {}

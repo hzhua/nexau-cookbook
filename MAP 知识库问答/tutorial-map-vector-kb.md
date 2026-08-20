@@ -67,7 +67,7 @@ MAP 知识库问答/
 
 | 层 | 位置 | 职责 | 是否需要修改？ |
 |----|------|------|---------------|
-| 鉴权 / 重试层 | `_map_client.py` | token 缓存、过期重取、transient 重试 | ❌ 否 |
+| 鉴权 / 重试层 | `_map_client.py` | token 缓存（按 JWT `exp` 计时）、single-flight、鉴权失败重放、`refreshToken` 兜底、transient 重试 | ❌ 否 |
 | 业务 / 加工层 | `map_api.py` | 将每个 MAP API 封装为对 LLM 友好的函数 | ❌ 否 |
 | 编排层 | `agent.yaml` + `systemprompt_vb.md` | 注册工具、KB 映射表、检索流程 | ✅ **需要修改** |
 
@@ -266,7 +266,17 @@ MAP 的 `/retriever_search_docs` 端点存在一个隐藏问题：若 body 简�
 
 ### 鉴权 / token 缓存 / transient 重试
 
-`MapClient` 使用进程级 token 缓存，本地计时到期后自动重取。MAP 有时会用 `HTTP 500 + state=28201`（或“token无效”）表示鉴权失败；客户端会清除被拒绝的旧 token、现场获取最新 token，并重试原请求一次。按 token 值做条件失效，可避免并发请求误删另一个请求刚刷新的 token。`state=20001` 的 transient 错误则最多退避重试两次。你仅需配置 `MAP_APP_KEY/SECRET/USER_ID` 三个 env，其余无需关心。
+`MapClient` 使用进程级 token 缓存。**过期时刻取自 token 自身**——MAP 的 app_key session token 是 HS256 JWT，直接读 payload 里的 `exp`，而不是用「本地时刻 + `expires_in`」推算。
+
+> 为什么这一点重要：**MAP 在 token 未到期时会复用并返回同一个 token**（连续两次调 `getSessionToken` 拿到的 access_token 完全相同），而它始终从**首次签发**时刻计时。若客户端每次申请都按 `now + expires_in` 重新计时，两边的到期时刻会越差越远——本地以为有效、服务端已判过期，表现为搜索接口返回 401「获取令牌失败」，而且**清缓存重取也没用**（重取拿回的还是同一个）。读不到 JWT `exp` 时会回落：服务端给回同一个 token 就沿用旧计时，绝不重新计算。
+
+鉴权失败（`HTTP 401/403`、`state=28201`、`token无效`）时，客户端清除被拒的那一个 token、重新获取并重放请求一次；**若重取拿回的仍是被拒的那个**，改走 `/platform/api/v2/auth/refreshToken` 强制换发。换发不成时**不会**把已知被拒的 token 写回缓存。
+
+取 token 与换发都走 **single-flight**：同一 key 同一时刻只有一个线程真正发请求，其余等待并共享它的结果**与失败**。批量搜索用 8 个线程并发，没有这层会在 token 边界打出 8 次认证请求；而共享失败这一点是必须的——用朴素互斥锁包住网络请求，会把并发的 1×超时退化成串行的 N×超时。
+
+`state=20001` 的 transient 错误最多退避重试两次。鉴权链路的关键事件会打到 stdout（`[map-auth] …`，进 pod 日志）：走了哪条计时分支、`refreshToken` 试没试、结果如何——这几行是判断鉴权问题出在哪一层的主要依据。
+
+你仅需配置 `MAP_APP_KEY/SECRET/USER_ID` 三个 env，其余无需关心。
 
 ---
 

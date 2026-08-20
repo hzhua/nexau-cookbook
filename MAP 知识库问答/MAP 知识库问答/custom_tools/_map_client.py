@@ -19,6 +19,7 @@ setting `MAP_VERIFY_SSL=true` in the runtime environment.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import ssl
@@ -51,6 +52,44 @@ def _make_ssl_context(host: str) -> ssl.SSLContext | None:
     return ctx
 
 
+def _jwt_exp(token: str) -> float | None:
+    """Read `exp` (epoch seconds) out of a JWT without any third-party lib.
+
+    MAP 的 app_key session token 是 HS256 JWT，payload 里带 exp——
+    那是**服务端认定的**到期时刻，比任何客户端计时都准。
+    不是 JWT、或没有 exp 时返回 None，由调用方回落。
+    """
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        seg = parts[1] + "=" * (-len(parts[1]) % 4)
+        data = json.loads(base64.urlsafe_b64decode(seg).decode("utf-8"))
+        exp = data.get("exp")
+        if exp is None:
+            return None
+        exp = float(exp)
+        if exp > 1e11:  # 毫秒级时间戳
+            exp /= 1000.0
+        return exp
+    except Exception:
+        return None
+
+
+def _log(msg: str) -> None:
+    """把鉴权链路的关键事件打到 stdout（沙箱 stdout 会进 pod 日志）。
+
+    ⚠️ 这不是可选的调试便利，是**判断修复有没有生效的唯一手段**：
+    这条链路上的失败此前全部塌缩成同一句报错——refreshToken 试没试、
+    走的哪条计时分支、服务端是不是又把同一个 token 给回来了，
+    从调用方看完全无法分辨。症状复发时，没有这几行就只能把整轮排查重来。
+    """
+    try:
+        print(f"[map-auth] {msg}", flush=True)
+    except Exception:
+        pass
+
+
 class MapApiError(RuntimeError):
     """Raised when the MAP API responds with success=false or non-2xx."""
 
@@ -58,6 +97,35 @@ class MapApiError(RuntimeError):
 # Process-level cache: (host, app_key, user_id) → {access_token, refresh_token, exp_at}
 _TOKEN_CACHE: dict[tuple[str, str, str], dict[str, Any]] = {}
 _TOKEN_LOCK = threading.Lock()
+
+# --- single-flight: one in-flight auth attempt per key; followers share its
+#     result AND its failure (sharing the failure is what keeps a slow/timing-out
+#     token endpoint from being paid N times in series). ---
+_INFLIGHT: dict[Any, dict[str, Any]] = {}
+
+
+def _single_flight(slot, fn):
+    with _TOKEN_LOCK:
+        cell = _INFLIGHT.get(slot)
+        leader = cell is None
+        if leader:
+            cell = {"ev": threading.Event(), "val": None, "exc": None}
+            _INFLIGHT[slot] = cell
+    if not leader:
+        cell["ev"].wait()
+        if cell["exc"] is not None:
+            raise cell["exc"]
+        return cell["val"]
+    try:
+        cell["val"] = fn()
+    except BaseException as exc:          # noqa: BLE001 - shared with followers
+        cell["exc"] = exc
+        raise
+    finally:
+        with _TOKEN_LOCK:
+            _INFLIGHT.pop(slot, None)
+        cell["ev"].set()
+    return cell["val"]
 
 
 class MapClient:
@@ -131,7 +199,22 @@ class MapClient:
     def _cache_key(self) -> tuple[str, str, str]:
         return (self.host, self.app_key, self.user_id)
 
-    def _fetch_new_token(self) -> dict[str, Any]:
+    def _fetch_new_token(self, prev: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Call getSessionToken and derive a *server-truthful* expiry.
+
+        ⚠️ 这里的过期时间不能用 `time.time() + expires_in`。
+        MAP 在 token 尚未到期时**会返回同一个 token**（实测：连续两次调用
+        getSessionToken 拿到完全相同的 access_token），而它那边始终从
+        **首次签发**时刻计时。若客户端每次申请都重新计时，两边的到期时刻
+        就会越差越远——本地以为还有效、服务端已判过期，表现为
+        `retriever_search_docs` 返回 401「获取令牌失败」，且**清缓存重取也没用**
+        （重取拿回的还是同一个已过期的 token）。
+
+        取值优先级：
+        1. token 自身携带的 `exp`（MAP 的 app_key session token 是 HS256 JWT）——最准
+        2. 服务端复用了同一个 token → **沿用上一次的到期时刻，不重新计时**
+        3. 都不适用 → 回落到 now + expires_in
+        """
         status, raw, _ = self._post_json(
             "/platform/api/v2/auth/getSessionToken",
             {
@@ -159,22 +242,137 @@ class MapClient:
         expires_in = int(data.get("expires_in") or 7200)
         if not access_token:
             raise MapApiError(f"getSessionToken returned no access_token: {payload}")
+
+        jwt_exp = _jwt_exp(access_token)
+        if jwt_exp is not None:
+            exp_at = jwt_exp - 60
+            # 最后 60 秒：安全垫已经把 exp_at 推到过去，而服务端还在复用同一个
+            # token —— 再问也只会拿回它。别让缓存"一出生就过期"，否则这 60 秒里
+            # 每个请求都白搭一次 getSessionToken。用真到期时刻兜底，尾部交给
+            # 401 → renew_after_rejection 处理。
+            if exp_at <= time.time():
+                exp_at = jwt_exp
+            basis = "jwt"
+        elif prev and prev.get("access_token") == access_token:
+            # 服务端复用了同一个 token：不要重新计时。
+            exp_at = prev["exp_at"]
+            basis = "reused"
+            _log("服务端复用了同一 token（非 JWT），沿用原过期时刻、不重新计时")
+        else:
+            exp_at = time.time() + max(expires_in - 60, 60)
+            basis = "expires_in"
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            # Refresh 60s before expiry to be safe.
-            "exp_at": time.time() + max(expires_in - 60, 60),
+            "exp_at": exp_at,
+            "basis": basis,
         }
 
+    def _refresh_token_call(self, refresh_token: str) -> dict[str, Any] | None:
+        """Force a brand-new token via refreshToken. Returns None if unusable.
+
+        仅在「重取拿回同一个被拒 token」时才走这条路——那种情况下
+        getSessionToken 无论调多少次都给不出新 token，只有它能打破僵局。
+        """
+        if not refresh_token:
+            _log("refreshToken 跳过：手上没有 refresh_token")
+            return None
+        try:
+            status, raw, _ = self._post_json(
+                "/platform/api/v2/auth/refreshToken",
+                {"refresh_token": refresh_token, "user_id": self.user_id},
+            )
+            if status >= 400:
+                _log(f"refreshToken 失败：HTTP {status}（端点可能不存在或参数不符）")
+                return None
+            payload = json.loads(raw.decode("utf-8"))
+            if not payload.get("success"):
+                _log(f"refreshToken 被拒：state={payload.get('state')} "
+                     f"message={payload.get('message')}")
+                return None
+            data = payload.get("data") or {}
+            access_token = data.get("access_token")
+            if not access_token:
+                _log("refreshToken 返回 success 但没有 access_token")
+                return None
+            jwt_exp = _jwt_exp(access_token)
+            expires_in = int(data.get("expires_in") or 7200)
+            return {
+                "access_token": access_token,
+                "refresh_token": data.get("refresh_token") or refresh_token,
+                "exp_at": jwt_exp - 60 if jwt_exp is not None
+                else time.time() + max(expires_in - 60, 60),
+                "basis": "refresh",
+            }
+        except Exception as exc:
+            _log(f"refreshToken 异常：{type(exc).__name__}: {exc}")
+            return None
+
     def get_access_token(self) -> str:
+        """Return a cached token, fetching a new one outside the lock if needed.
+
+        ⚠️ 网络请求**必须在锁外**：batch 搜索用 8 个线程并发，
+        若在锁内发请求，第一个线程慢/超时会把其余 7 个一起拖死，
+        单次 30s 的超时预算会被放大成分钟级（实测见过 151s）。
+        """
         key = self._cache_key()
         with _TOKEN_LOCK:
             cached = _TOKEN_CACHE.get(key)
             if cached and cached["exp_at"] > time.time():
                 return cached["access_token"]
-            fresh = self._fetch_new_token()
-            _TOKEN_CACHE[key] = fresh
+            prev = dict(cached) if cached else None
+
+        def _go():
+            fresh = self._fetch_new_token(prev)  # 锁外发请求
+            with _TOKEN_LOCK:
+                cur = _TOKEN_CACHE.get(key)
+                if cur and cur["exp_at"] > fresh["exp_at"]:
+                    return cur["access_token"]
+                _TOKEN_CACHE[key] = fresh
+                return fresh["access_token"]
+
+        return _single_flight((key, "get"), _go)
+
+    def renew_after_rejection(self, rejected_token: str) -> str:
+        """Get a token that is *not* the rejected one.
+
+        先常规重取；若服务端把同一个 token 又给回来（MAP 的实际行为），
+        再走 refreshToken 强制换发。这是本次 401 循环的正解——
+        单纯 invalidate + 重取在服务端复用 token 时是无效动作。
+        """
+        key = self._cache_key()
+
+        def _go():
+            with _TOKEN_LOCK:
+                cached = _TOKEN_CACHE.get(key)
+                if (cached and cached.get("access_token") != rejected_token
+                        and cached["exp_at"] > time.time()):
+                    return cached["access_token"]
+                prev = dict(cached) if cached else None
+                if cached and cached.get("access_token") == rejected_token:
+                    _TOKEN_CACHE.pop(key, None)
+
+            fresh = self._fetch_new_token(prev)
+            if fresh["access_token"] == rejected_token:
+                _log("重取拿回的仍是被拒的同一个 token —— 服务端在复用，"
+                     "改走 refreshToken 强制换发")
+                forced = self._refresh_token_call(
+                    (prev or {}).get("refresh_token") or fresh.get("refresh_token") or ""
+                )
+                if forced is not None:
+                    _log("refreshToken 换发成功，拿到新 token")
+                    fresh = forced
+                else:
+                    _log("⚠️ refreshToken 未能换发 —— 这条逃生口没走通，"
+                         "本次鉴权将失败（若症状复发，先查这一行）")
+            with _TOKEN_LOCK:
+                if fresh["access_token"] != rejected_token:
+                    _TOKEN_CACHE[key] = fresh
+                else:
+                    _TOKEN_CACHE.pop(key, None)
             return fresh["access_token"]
+
+        return _single_flight((key, "renew", rejected_token), _go)
 
     def invalidate_token(self, rejected_token: str | None = None) -> None:
         """Remove a rejected token without discarding a concurrent refresh."""
@@ -284,7 +482,10 @@ class MapClient:
                 preview_dict = {}
             auth_failure = self._looks_like_auth_failure(status, preview_dict)
             if auth_failure and not auth_refreshed:
-                self.invalidate_token(headers["accessToken"])
+                # ⚠️ 不能只 invalidate 了事：MAP 在 token 未到期时会把同一个
+                # token 再给回来，那样重试用的还是刚被拒的那个，必然再 401。
+                # renew_after_rejection 会在发现"又是它"时走 refreshToken 强制换发。
+                self.renew_after_rejection(headers["accessToken"])
                 auth_refreshed = True
                 continue
             if (
