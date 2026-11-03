@@ -30,6 +30,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+# 服务端复用同一个非 JWT token、且本地估计的过期时刻已过时，下一次向服务端
+# 复查（再调 getSessionToken）的间隔秒数。
+_REUSED_RECHECK_SECONDS = 300
+
+
 def _verify_ssl_enabled() -> bool:
     """Verify certificates unless MAAS_VERIFY_SSL is 0/false/no/off."""
     return os.environ.get("MAAS_VERIFY_SSL", "").strip().lower() not in (
@@ -261,9 +266,21 @@ class MaasClient:
             basis = "jwt"
         elif prev and prev.get("access_token") == access_token:
             # 服务端复用了同一个 token：不要重新计时。
-            exp_at = prev["exp_at"]
-            basis = "reused"
-            _log("服务端复用了同一 token（非 JWT），沿用原过期时刻、不重新计时")
+            if prev["exp_at"] > time.time():
+                exp_at = prev["exp_at"]
+                basis = "reused"
+                _log("服务端复用了同一 token（非 JWT），沿用原过期时刻、不重新计时")
+            else:
+                # 本地估计的过期时刻已过、服务端却仍把同一个 token 发回来。
+                # 本地无法确认服务端是否仍认它（以业务请求是否被拒为准）。
+                # 沿用已过去的 exp_at 会让缓存"一出生就过期"，
+                # 之后每次调用都白搭一次 getSessionToken。给一个短的复查窗口；
+                # 窗口内若被服务端拒绝，仍走 renew_after_rejection → refreshToken。
+                exp_at = time.time() + _REUSED_RECHECK_SECONDS
+                basis = "reused-recheck"
+                if prev.get("basis") != "reused-recheck":  # 只在进入该状态时记一次
+                    _log("服务端仍返回同一 token（非 JWT），本地估计已过期：沿用并每 "
+                         f"{_REUSED_RECHECK_SECONDS} 秒复查一次；被拒则走 refreshToken")
         else:
             exp_at = time.time() + max(expires_in - 60, 60)
             basis = "expires_in"

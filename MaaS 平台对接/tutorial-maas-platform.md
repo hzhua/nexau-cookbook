@@ -494,7 +494,7 @@ tools:
 | 结果裁剪 | 原始 hit 十余个字段中，只保留 `page_content / title / file_name / file_id / segment_position` 等有决策价值的字段，20 个 hit 可省数千 token（`score` 在不同 query 间量纲不一致，反而误导 LLM，所以不返回） |
 | 服务端 bug 自动 fallback | 部分早期 KB 的 hybrid 端点会报 `'Document' object has no attribute 'id'` 或 `不支持全文检索`，工具识别后自动降级到 semantic 端点，降级的 hit 带 `fallback: true`，系统提示词要求 Agent 在回答里简短说明。回答偶尔出现"该结果为降级返回"属于正常行为 |
 | Hybrid body 完整性 | `/retriever_search_docs` 若 body 简化（只传 `query` + `knowledge_base_id`），服务端不报错但静默退化为 semantic。工具显式携带 `retriever_type=hybrid` + 完整 `config`，确保 hybrid 真正生效 |
-| token 计时 | 过期时刻**取自 token 自身的 JWT `exp`**，而非"本地时刻 + `expires_in`"。MaaS 在 token 未到期时会复用同一个 token 并从首次签发起计时；按 `now + expires_in` 重算会越差越远，表现为搜索 401 而且清缓存重取也没用。读不到 `exp` 时回落：服务端给回同一个 token 就沿用旧计时 |
+| token 计时 | 过期时刻**取自 token 自身的 JWT `exp`**，而非"本地时刻 + `expires_in`"。MaaS 在 token 未到期时会复用同一个 token 并从首次签发起计时；按 `now + expires_in` 重算会越差越远，表现为搜索 401 而且清缓存重取也没用。读不到 `exp` 时回落：服务端给回同一个 token 就沿用旧计时；若本地估计的到期时刻已过、服务端仍给回同一个 token（是否仍有效以业务请求是否被拒为准），则给一个 300 秒的复查窗口，窗口内不再重取，到点复查一次，被拒时仍走 `refreshToken` 换发 |
 | 鉴权失败重放 | `HTTP 401/403`、`state=28201`、`token无效` 时清除被拒的那一个 token、重取并重放一次；若重取拿回的仍是被拒的那个，改走 `/platform/api/v2/auth/refreshToken` 强制换发；换发不成不会把已知被拒的 token 写回缓存 |
 | single-flight | 取 token 与换发同一 key 同一时刻只有一个线程真正发请求，其余等待并共享结果**与失败**，避免并发检索在 token 边界打出一堆认证请求 |
 | transient 重试 | HTTP 5xx 或 `state=20001` 的临时错误最多退避重试两次 |
