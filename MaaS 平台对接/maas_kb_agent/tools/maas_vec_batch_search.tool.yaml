@@ -1,5 +1,5 @@
 type: tool
-name: map_vec_batch_search
+name: maas_vec_batch_search
 description: >-
   Hybrid-search a CROSS-PRODUCT of N queries × M vector KBs in parallel
   (so total HTTP calls = len(queries) × len(knowledge_base_ids)), then

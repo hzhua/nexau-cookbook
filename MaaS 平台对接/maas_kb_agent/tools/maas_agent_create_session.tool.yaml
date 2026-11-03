@@ -1,0 +1,21 @@
+type: tool
+name: maas_agent_create_session
+description: Create a MAAS agent conversation using a runtime-managed agent profile.
+input_schema:
+  type: object
+  properties:
+    session_name:
+      type: string
+      minLength: 1
+      maxLength: 200
+      description: Human-readable name for the new conversation.
+    agent_alias:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$
+      description: Optional configured agent alias; runtime default is used when omitted.
+  required:
+    - session_name
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

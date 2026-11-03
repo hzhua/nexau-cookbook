@@ -1,4 +1,4 @@
-"""MAP OpenAPI low-level client: token cache + signed POST helpers.
+"""MaaS OpenAPI low-level client: token cache + signed POST helpers.
 
 Stdlib-only (urllib + ssl + json) so it runs inside any NexAU sandbox without
 extra dependencies.
@@ -9,12 +9,12 @@ Endpoints:
 - POST {host}/interface/api/kb/...                    → vector KB search APIs
 
 TLS / cert verification:
-MAP gateways in private-deployment scenarios typically expose HTTPS with a
-self-signed certificate (e.g. the demo host 117.184.59.230:10002). curl
-must use `-k`; Python's urllib must be given a context with CERT_NONE.
-We therefore **skip cert verification by default** for any HTTPS MAP_HOST.
-Users who run MAP behind a properly CA-signed gateway can opt back in by
-setting `MAP_VERIFY_SSL=true` in the runtime environment.
+Certificates are verified by default for https hosts. MaaS gateways in
+private deployments are often signed by a non-public CA or self-signed; in
+that case set `MAAS_VERIFY_SSL=false` (also accepts 0 / no / off) in the
+runtime environment to skip verification. Any other value, or leaving it
+unset, keeps verification on. This is the same rule the agent client
+(`_maas_agent_client.py`) uses.
 """
 
 from __future__ import annotations
@@ -30,13 +30,10 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-DEFAULT_HOST = "https://117.184.59.230:10002"
-
-
 def _verify_ssl_enabled() -> bool:
-    """True only when the operator explicitly opts in via MAP_VERIFY_SSL."""
-    return os.environ.get("MAP_VERIFY_SSL", "").strip().lower() in (
-        "1", "true", "yes", "on",
+    """Verify certificates unless MAAS_VERIFY_SSL is 0/false/no/off."""
+    return os.environ.get("MAAS_VERIFY_SSL", "").strip().lower() not in (
+        "0", "false", "no", "off",
     )
 
 
@@ -46,7 +43,7 @@ def _make_ssl_context(host: str) -> ssl.SSLContext | None:
         return None
     ctx = ssl.create_default_context()
     if not _verify_ssl_enabled():
-        # Self-signed cert is the norm for private MAP deployments.
+        # Operator explicitly opted out (non-public CA / self-signed cert).
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     return ctx
@@ -55,7 +52,7 @@ def _make_ssl_context(host: str) -> ssl.SSLContext | None:
 def _jwt_exp(token: str) -> float | None:
     """Read `exp` (epoch seconds) out of a JWT without any third-party lib.
 
-    MAP 的 app_key session token 是 HS256 JWT，payload 里带 exp——
+    MaaS 的 app_key session token 是 HS256 JWT，payload 里带 exp——
     那是**服务端认定的**到期时刻，比任何客户端计时都准。
     不是 JWT、或没有 exp 时返回 None，由调用方回落。
     """
@@ -85,13 +82,13 @@ def _log(msg: str) -> None:
     从调用方看完全无法分辨。症状复发时，没有这几行就只能把整轮排查重来。
     """
     try:
-        print(f"[map-auth] {msg}", flush=True)
+        print(f"[maas-auth] {msg}", flush=True)
     except Exception:
         pass
 
 
-class MapApiError(RuntimeError):
-    """Raised when the MAP API responds with success=false or non-2xx."""
+class MaasApiError(RuntimeError):
+    """Raised when the MaaS API responds with success=false or non-2xx."""
 
 
 # Process-level cache: (host, app_key, user_id) → {access_token, refresh_token, exp_at}
@@ -128,7 +125,7 @@ def _single_flight(slot, fn):
     return cell["val"]
 
 
-class MapClient:
+class MaasClient:
     """Stateless façade — token cache lives at module level so multiple tool
     invocations within the same Runtime process share the same access_token."""
 
@@ -140,9 +137,14 @@ class MapClient:
         app_secret: str,
         user_id: str,
         timeout: int = 30,
+        token_post=None,
     ):
+        # token_post: optional hook `(path, body) -> (status, raw_bytes, headers)` used ONLY
+        # for the two token endpoints (getSessionToken / refreshToken). Default: this
+        # client's own urllib POST. The agent client injects its own transport here so it
+        # keeps its retry / no-redirect / header behaviour while sharing this token cache.
         if not host:
-            host = DEFAULT_HOST
+            raise MaasApiError("MAAS_HOST is required (no default host)")
         # normalise: strip trailing slash
         self.host = host.rstrip("/")
         self.app_key = app_key
@@ -150,6 +152,10 @@ class MapClient:
         self.user_id = user_id
         self.timeout = timeout
         self._ssl_ctx = _make_ssl_context(self.host)
+        self._token_post = token_post or self._post_json
+        # single-flight slots are per transport kind: a follower never receives a result/exception
+        # produced by another tool's transport (different retry budget / error type).
+        self._flight_tag = "default" if token_post is None else "custom"
 
     # ------------------------------------------------------------------ HTTP
 
@@ -203,7 +209,7 @@ class MapClient:
         """Call getSessionToken and derive a *server-truthful* expiry.
 
         ⚠️ 这里的过期时间不能用 `time.time() + expires_in`。
-        MAP 在 token 尚未到期时**会返回同一个 token**（实测：连续两次调用
+        MaaS 在 token 尚未到期时**会返回同一个 token**（实测：连续两次调用
         getSessionToken 拿到完全相同的 access_token），而它那边始终从
         **首次签发**时刻计时。若客户端每次申请都重新计时，两边的到期时刻
         就会越差越远——本地以为还有效、服务端已判过期，表现为
@@ -211,11 +217,11 @@ class MapClient:
         （重取拿回的还是同一个已过期的 token）。
 
         取值优先级：
-        1. token 自身携带的 `exp`（MAP 的 app_key session token 是 HS256 JWT）——最准
+        1. token 自身携带的 `exp`（MaaS 的 app_key session token 是 HS256 JWT）——最准
         2. 服务端复用了同一个 token → **沿用上一次的到期时刻，不重新计时**
         3. 都不适用 → 回落到 now + expires_in
         """
-        status, raw, _ = self._post_json(
+        status, raw, _ = self._token_post(
             "/platform/api/v2/auth/getSessionToken",
             {
                 "app_key": self.app_key,
@@ -224,15 +230,15 @@ class MapClient:
             },
         )
         if status >= 400:
-            raise MapApiError(
+            raise MaasApiError(
                 f"getSessionToken HTTP {status}: {raw[:300].decode('utf-8', 'replace')}"
             )
         try:
             payload = json.loads(raw.decode("utf-8"))
         except Exception as exc:
-            raise MapApiError(f"getSessionToken non-JSON response: {raw[:300]!r}") from exc
+            raise MaasApiError(f"getSessionToken non-JSON response: {raw[:300]!r}") from exc
         if not payload.get("success"):
-            raise MapApiError(
+            raise MaasApiError(
                 f"getSessionToken failed: state={payload.get('state')} "
                 f"message={payload.get('message')}"
             )
@@ -241,7 +247,7 @@ class MapClient:
         refresh_token = data.get("refresh_token")
         expires_in = int(data.get("expires_in") or 7200)
         if not access_token:
-            raise MapApiError(f"getSessionToken returned no access_token: {payload}")
+            raise MaasApiError(f"getSessionToken returned no access_token: {payload}")
 
         jwt_exp = _jwt_exp(access_token)
         if jwt_exp is not None:
@@ -278,7 +284,7 @@ class MapClient:
             _log("refreshToken 跳过：手上没有 refresh_token")
             return None
         try:
-            status, raw, _ = self._post_json(
+            status, raw, _ = self._token_post(
                 "/platform/api/v2/auth/refreshToken",
                 {"refresh_token": refresh_token, "user_id": self.user_id},
             )
@@ -331,12 +337,12 @@ class MapClient:
                 _TOKEN_CACHE[key] = fresh
                 return fresh["access_token"]
 
-        return _single_flight((key, "get"), _go)
+        return _single_flight((key, "get", self._flight_tag), _go)
 
     def renew_after_rejection(self, rejected_token: str) -> str:
         """Get a token that is *not* the rejected one.
 
-        先常规重取；若服务端把同一个 token 又给回来（MAP 的实际行为），
+        先常规重取；若服务端把同一个 token 又给回来（MaaS 的实际行为），
         再走 refreshToken 强制换发。这是本次 401 循环的正解——
         单纯 invalidate + 重取在服务端复用 token 时是无效动作。
         """
@@ -372,7 +378,7 @@ class MapClient:
                     _TOKEN_CACHE.pop(key, None)
             return fresh["access_token"]
 
-        return _single_flight((key, "renew", rejected_token), _go)
+        return _single_flight((key, "renew", rejected_token, self._flight_tag), _go)
 
     def invalidate_token(self, rejected_token: str | None = None) -> None:
         """Remove a rejected token without discarding a concurrent refresh."""
@@ -403,17 +409,17 @@ class MapClient:
         try:
             payload = json.loads(raw.decode("utf-8"))
         except Exception as exc:
-            raise MapApiError(
+            raise MaasApiError(
                 f"{path} non-JSON response (HTTP {status}): {raw[:300]!r}"
             ) from exc
         if status >= 400:
-            raise MapApiError(
+            raise MaasApiError(
                 f"{path} HTTP {status}: "
                 f"state={payload.get('state')} resultCode={payload.get('resultCode')} "
                 f"message={payload.get('message')}"
             )
         if not self._is_ok(payload):
-            raise MapApiError(
+            raise MaasApiError(
                 f"{path} failed: "
                 f"state={payload.get('state')} resultCode={payload.get('resultCode')} "
                 f"message={payload.get('message')}"
@@ -426,7 +432,7 @@ class MapClient:
         if self._is_ok(payload):
             return False
 
-        # MAP reports an expired/invalid access token as HTTP 500 with
+        # MaaS reports an expired/invalid access token as HTTP 500 with
         # state=28201 instead of an HTTP authentication status.
         codes = (
             str(payload.get("state") or ""),
@@ -482,7 +488,7 @@ class MapClient:
                 preview_dict = {}
             auth_failure = self._looks_like_auth_failure(status, preview_dict)
             if auth_failure and not auth_refreshed:
-                # ⚠️ 不能只 invalidate 了事：MAP 在 token 未到期时会把同一个
+                # ⚠️ 不能只 invalidate 了事：MaaS 在 token 未到期时会把同一个
                 # token 再给回来，那样重试用的还是刚被拒的那个，必然再 401。
                 # renew_after_rejection 会在发现"又是它"时走 refreshToken 强制换发。
                 self.renew_after_rejection(headers["accessToken"])

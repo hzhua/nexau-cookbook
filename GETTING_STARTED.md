@@ -98,7 +98,8 @@ zip -r enterprise_data_agent.zip . -x "*.DS_Store" "*__pycache__*" "*.env"
 |------|------|-------------|
 | `OCR_API_KEY` | OCR 服务商 | 住房公积金审核、公文写作（涉及 PDF） |
 | `X_FINNHUB_SECRET` | [finnhub.io](https://finnhub.io) | 金融数据智能体 |
-| `MAP_APP_KEY` / `MAP_APP_SECRET` / `MAP_USER_ID` | MAP 平台 | MAP 知识库问答 |
+| `MAAS_HOST` / `MAAS_APP_KEY` / `MAAS_APP_SECRET` / `MAAS_USER_ID` | MaaS 平台 | MaaS 平台对接（`MAAS_HOST` 必填，无缺省地址）。**Runtime Var**，不是 Sandbox Var，配在项目或环境的运行时环境变量里，见 MaaS 教程 |
+| `MAAS_AGENT_NAMES` / `MAAS_PROJECT_IDS` / `MAAS_APPLICATION_IDS` / `MAAS_AGENT_SECRET_KEYS` / `MAAS_DEFAULT_AGENT` | MaaS 平台上要调用的智能体 | MaaS 平台对接（仅调用智能体时需要）。**Runtime Var**，不是 Sandbox Var，配在项目或环境的运行时环境变量里，见 MaaS 教程 |
 | `DAMENG_DB_CONN_STR` | 自己的达梦数据库 | 达梦数据库（**Runtime Var**，不是 Sandbox Var） |
 | `LLM_MODEL` / `LLM_BASE_URL` / `LLM_API_KEY` | OpenAI 兼容 LLM 网关 | 达梦数据库（自定义 LLM 不走平台默认） |
 | 其他 API Key | 视场景而定 | — |

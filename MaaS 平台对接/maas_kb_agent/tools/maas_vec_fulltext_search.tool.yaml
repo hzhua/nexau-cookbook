@@ -1,12 +1,12 @@
 type: tool
-name: map_vec_fulltext_search
+name: maas_vec_fulltext_search
 description: >-
   Full-text (BM25-style) search inside a vector knowledge base — pure
   keyword matching, no semantic embedding. Best when you need to locate an
   EXACT phrase, code, identifier, or quoted clause that semantic search
-  might dilute. For most "general question" cases prefer map_vec_batch_search,
+  might dilute. For most "general question" cases prefer maas_vec_batch_search,
   which combines lexical and semantic signals. Same response shape as the
-  other search tools. knowledge_base_id falls back to MAP_VECTOR_KB_ID if
+  other search tools. knowledge_base_id falls back to MAAS_VECTOR_KB_ID if
   omitted.
 input_schema:
   type: object
@@ -17,7 +17,7 @@ input_schema:
     knowledge_base_id:
       type: string
       description: >-
-        Optional. Vector knowledge_base_id. Falls back to MAP_VECTOR_KB_ID.
+        Optional. Vector knowledge_base_id. Falls back to MAAS_VECTOR_KB_ID.
     top_k:
       type: integer
       description: "Optional. Max hits, default server-side."
