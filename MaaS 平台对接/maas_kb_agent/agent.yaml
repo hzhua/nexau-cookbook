@@ -1,0 +1,117 @@
+type: agent
+name: maas_kb_agent
+description: >-
+  MaaS 平台对接 Agent。基于 MaaS 向量知识库做 hybrid / semantic / fulltext 检索,
+  以同义词扩召回 + 跨 KB 并行的方式回答用户问题,给出引用清晰的中文回答;
+  也可以调用 MaaS 平台上已配置的智能体。所有地址与凭据都来自 MAAS_* 环境变量。
+
+system_prompt: ./systemprompt.md
+system_prompt_type: jinja
+
+llm_config:
+  api_type: openai_chat_completion
+  model: "${env.LLM_MODEL}"
+  base_url: "${env.LLM_BASE_URL}"
+  api_key: "${env.LLM_API_KEY}"
+  max_tokens: 8192
+  temperature: 0.2
+  stream: True
+
+max_iterations: 50
+max_context_tokens: 128000
+tool_call_mode: structured
+
+tools:
+  # --- 标配三件套 ---
+  - name: read_file
+    yaml_path: tools/read_file.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:read_file
+  - name: search_file_content
+    yaml_path: tools/search_file_content.tool.yaml
+    binding: nexau.archs.tool.builtin.file_tools:search_file_content
+  - name: run_shell_command
+    yaml_path: tools/run_shell_command.tool.yaml
+    binding: nexau.archs.tool.builtin.shell_tools:run_shell_command
+
+  # --- MaaS 向量知识库检索（地址和凭据经 extra_kwargs 注入；MAAS_VECTOR_KB_ID、MAAS_VERIFY_SSL 由工具直接读运行时环境变量）---
+  - name: maas_vec_get_chunks_by_file
+    yaml_path: tools/maas_vec_get_chunks_by_file.tool.yaml
+    binding: custom_tools.maas_api:maas_vec_get_chunks_by_file
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+
+  - name: maas_vec_batch_search
+    yaml_path: tools/maas_vec_batch_search.tool.yaml
+    binding: custom_tools.maas_api:maas_vec_batch_search
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+
+  - name: maas_vec_semantic_search
+    yaml_path: tools/maas_vec_semantic_search.tool.yaml
+    binding: custom_tools.maas_api:maas_vec_semantic_search
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+
+  - name: maas_vec_fulltext_search
+    yaml_path: tools/maas_vec_fulltext_search.tool.yaml
+    binding: custom_tools.maas_api:maas_vec_fulltext_search
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+
+  # --- 调用 MaaS 平台智能体 ---
+  - name: maas_agent_create_session
+    yaml_path: tools/maas_agent_create_session.tool.yaml
+    binding: custom_tools.maas_agent_api:maas_agent_create_session
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+      agent_names: "${env.MAAS_AGENT_NAMES}"
+      project_ids: "${env.MAAS_PROJECT_IDS}"
+      application_ids: "${env.MAAS_APPLICATION_IDS}"
+      agent_secret_keys: "${env.MAAS_AGENT_SECRET_KEYS}"
+      default_agent: "${env.MAAS_DEFAULT_AGENT}"
+
+  - name: maas_agent_chat
+    yaml_path: tools/maas_agent_chat.tool.yaml
+    binding: custom_tools.maas_agent_api:maas_agent_chat
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+      agent_names: "${env.MAAS_AGENT_NAMES}"
+      project_ids: "${env.MAAS_PROJECT_IDS}"
+      application_ids: "${env.MAAS_APPLICATION_IDS}"
+      agent_secret_keys: "${env.MAAS_AGENT_SECRET_KEYS}"
+      default_agent: "${env.MAAS_DEFAULT_AGENT}"
+
+  - name: maas_agent_delete_session
+    yaml_path: tools/maas_agent_delete_session.tool.yaml
+    binding: custom_tools.maas_agent_api:maas_agent_delete_session
+    extra_kwargs:
+      host: "${env.MAAS_HOST}"
+      app_key: "${env.MAAS_APP_KEY}"
+      app_secret: "${env.MAAS_APP_SECRET}"
+      user_id: "${env.MAAS_USER_ID}"
+
+skills:
+  - skills/maas-agent-chat
+
+middlewares:
+  - import: nexau.archs.main_sub.execution.middleware.context_compaction:ContextCompactionMiddleware
+    params:
+      threshold: 0.6

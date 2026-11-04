@@ -1,12 +1,12 @@
 type: tool
-name: map_vec_get_chunks_by_file
+name: maas_vec_get_chunks_by_file
 description: >-
   Drill into a SINGLE source file inside a vector KB and return more
   chunks of it. Use this AFTER a normal search returned a hit you want
   to expand (e.g. you got chunk for article 143 of a code; now you want
   articles 144, 145, ... from the same file).
 
-  How it works (and why this exists): MAP's vector KB exposes no
+  How it works (and why this exists): MaaS's vector KB exposes no
   "list-all-chunks-by-file" endpoint and no server-side `file_id` filter
   on search. We approximate by running a wide hybrid_search with a large
   top_k and client-filtering hits whose `metadata.file_id` matches your
@@ -20,9 +20,9 @@ description: >-
       answer.
     - You want to enumerate chunks under a specific source file.
   When NOT to use:
-    - Initial discovery/search — use map_vec_batch_search instead.
+    - Initial discovery/search — use maas_vec_batch_search instead.
     - Cross-file queries (you want hits from MANY files, not all from
-      one) — use map_vec_batch_search.
+      one) — use maas_vec_batch_search.
 
   Tips:
     - `query` is a relevance bias INSIDE the file. Use a focused noun
@@ -57,7 +57,7 @@ input_schema:
       type: string
       description: >-
         Vector KB id — must match the KB the original hit came from.
-        Falls back to MAP_VECTOR_KB_ID env if omitted.
+        Falls back to MAAS_VECTOR_KB_ID env if omitted.
     max_chunks:
       type: integer
       description: "Cap on returned matched chunks (default 20)."

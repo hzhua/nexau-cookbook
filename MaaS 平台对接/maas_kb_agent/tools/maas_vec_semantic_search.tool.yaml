@@ -1,14 +1,14 @@
 type: tool
-name: map_vec_semantic_search
+name: maas_vec_semantic_search
 description: >-
   Pure semantic / embedding-based search inside a vector knowledge base.
   Best when the user's wording differs from the document's wording (e.g.
   "外资规则" vs "外商投资法") — relies entirely on meaning, not keyword
-  match. Same response shape as map_vec_batch_search. Prefer map_vec_batch_search
+  match. Same response shape as maas_vec_batch_search. Prefer maas_vec_batch_search
   in most cases (it includes vector signal AND keyword recall and reranks);
   use this when you specifically want pure semantic without lexical bias.
   knowledge_base_id is resolved from the curated KB mapping in the system
-  prompt or supplied by the user; falls back to MAP_VECTOR_KB_ID if omitted.
+  prompt or supplied by the user; falls back to MAAS_VECTOR_KB_ID if omitted.
 input_schema:
   type: object
   properties:
@@ -18,7 +18,7 @@ input_schema:
     knowledge_base_id:
       type: string
       description: >-
-        Optional. Vector knowledge_base_id. Falls back to MAP_VECTOR_KB_ID.
+        Optional. Vector knowledge_base_id. Falls back to MAAS_VECTOR_KB_ID.
     top_k:
       type: integer
       description: "Optional. Max hits, default server-side."

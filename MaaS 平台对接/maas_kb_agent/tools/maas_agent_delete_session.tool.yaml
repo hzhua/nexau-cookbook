@@ -1,0 +1,15 @@
+type: tool
+name: maas_agent_delete_session
+description: Explicitly delete a MAAS agent conversation. Never call this as automatic cleanup.
+input_schema:
+  type: object
+  properties:
+    conversation_id:
+      type: string
+      minLength: 1
+      maxLength: 256
+      description: MAAS conversation ID to delete.
+  required:
+    - conversation_id
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#

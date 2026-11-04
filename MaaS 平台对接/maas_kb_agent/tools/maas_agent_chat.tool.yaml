@@ -1,0 +1,96 @@
+type: tool
+name: maas_agent_chat
+description: Chat with a runtime-selected MAAS agent profile.
+input_schema:
+  type: object
+  properties:
+    conversation_id:
+      type: string
+      minLength: 1
+      maxLength: 256
+      description: Existing MAAS conversation ID.
+    text:
+      type: string
+      minLength: 1
+      maxLength: 100000
+      description: User message sent to the agent.
+    agent_alias:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$
+      description: Required configured agent alias returned by session creation; reuse the alias bound to the conversation.
+    stream:
+      type: boolean
+      default: true
+      description: Request SSE v2 and aggregate it inside the tool when true.
+    using_context:
+      type: boolean
+      default: true
+      description: Whether MAAS conversation context should be used.
+    model_name:
+      type: string
+      minLength: 1
+      maxLength: 512
+      description: Optional MAAS model name or path.
+    max_tokens:
+      type: integer
+      minimum: 1
+      maximum: 131072
+      description: Optional maximum output token count.
+    params:
+      type: object
+      maxProperties: 64
+      propertyNames:
+        type: string
+        minLength: 1
+        maxLength: 128
+      additionalProperties: true
+      description: Bounded set of MAAS extension parameters.
+    knowledge_base_ids:
+      type: array
+      minItems: 1
+      maxItems: 64
+      uniqueItems: true
+      items:
+        type: string
+        minLength: 1
+        maxLength: 256
+      description: Dynamic knowledge base IDs for this request.
+    files:
+      type: array
+      maxItems: 20
+      items:
+        oneOf:
+          - type: string
+            minLength: 1
+            maxLength: 4194304
+            pattern: ^(?:https://|data:image/(?:png|jpeg|gif|webp);base64,)
+            description: HTTPS image URL or supported image Data URL.
+          - type: object
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 255
+              path:
+                type: string
+                minLength: 1
+                maxLength: 2048
+              size:
+                type: integer
+                minimum: 0
+                maximum: 1073741824
+              status:
+                type: string
+                minLength: 1
+                maxLength: 64
+            required: [name, path, size, status]
+            additionalProperties: false
+      description: File descriptors returned by upload, or supported image URLs.
+  required:
+    - conversation_id
+    - text
+    - agent_alias
+  additionalProperties: false
+  $schema: http://json-schema.org/draft-07/schema#
